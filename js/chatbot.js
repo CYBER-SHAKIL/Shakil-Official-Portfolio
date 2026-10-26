@@ -1,5 +1,19 @@
-// ---------------- SHAKIL DEV AI ASSISTANT (SERVER API) ----------------
+// ---------------- SHAKIL DEV AI ASSISTANT ----------------
 const botHistory = [];
+
+function getBotUid() {
+  const key = 'shakilDevBotUid';
+  try {
+    let uid = localStorage.getItem(key);
+    if (!uid) {
+      uid = 'visitor-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+      localStorage.setItem(key, uid);
+    }
+    return uid;
+  } catch {
+    return 'visitor-' + Date.now().toString(36);
+  }
+}
 
 function addBotMessage(text, sender) {
   const messages = document.getElementById('bot-messages');
@@ -18,41 +32,48 @@ document.getElementById('bot-form')?.addEventListener('submit', async event => {
   event.preventDefault();
   const input = document.getElementById('bot-input');
   const submit = event.currentTarget.querySelector('button[type="submit"]');
+  if (!input) return;
+
   const message = input.value.trim();
   if (!message) return;
+
   addBotMessage(message, 'user');
   input.value = '';
   if (submit) submit.disabled = true;
   const waiting = addBotMessage('একটু অপেক্ষা করো…', 'bot');
+
   try {
     const response = await fetch('/api/ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history: botHistory.slice(-8) })
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ message, uid: getBotUid(), history: botHistory.slice(-8) })
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
+
+    if (!response.ok || payload.success === false) {
       const error = new Error(payload.error || 'AI request failed');
       error.status = response.status;
-      error.code = payload.code;
       throw error;
     }
+
     const answer = String(payload.reply || '').trim();
-    waiting.textContent = answer || 'দুঃখিত, এই মুহূর্তে উত্তর তৈরি করা যায়নি। আবার চেষ্টা করো।';
+    if (!answer) throw new Error('Empty AI reply');
+    if (waiting) waiting.textContent = answer;
     botHistory.push({ role: 'user', text: message }, { role: 'model', text: answer });
     if (botHistory.length > 12) botHistory.splice(0, botHistory.length - 12);
   } catch (error) {
-    console.error('Shakil AI request failed:', error);
-    if (error.status === 503 || error.code === 'AI_NOT_CONFIGURED') {
-      waiting.textContent = 'AI সার্ভিস এখনো configure করা হয়নি। সার্ভারের environment settings-এ Gemini API key যোগ করতে হবে।';
-    } else if (error.status === 429) {
-      waiting.textContent = 'এই মুহূর্তে AI ব্যবহারের সীমা পূর্ণ হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করো।';
-    } else {
-      waiting.textContent = 'দুঃখিত, AI এখন উত্তর দিতে পারেনি। কিছুক্ষণ পর আবার চেষ্টা করো।';
+    console.error('Shakil Dev Bot request failed:', error);
+    if (waiting) {
+      waiting.textContent = error.status === 429
+        ? 'অনেক request হচ্ছে। একটু পরে আবার চেষ্টা করো।'
+        : error.status === 503
+          ? 'AI সার্ভিস এখন সাময়িকভাবে পাওয়া যাচ্ছে না। কিছুক্ষণ পর আবার চেষ্টা করো।'
+          : 'দুঃখিত, AI এখন উত্তর দিতে পারেনি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করো।';
     }
   } finally {
     if (submit) submit.disabled = false;
     const messages = document.getElementById('bot-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
+    if (input) input.focus();
   }
 });
